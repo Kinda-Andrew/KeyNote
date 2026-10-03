@@ -40,25 +40,121 @@ function askBpm(name, initial = 120) {
   return null;
 }
 
+
+
+function playsplitter(song) {
+  if (song.title == "flaklypa") {
+    play2(song);
+  } else {
+    play(song);
+  }
+}
+
+
+function handleFiles(song) {
+    notes:[];
+    const file = song.title.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+        const file = event.target.result;
+        const allLines = file.split(/\r\n|\n/);
+        // Reading line by line
+        allLines.forEach((line) => {
+          // this parses lie by line
+          // line == 1 line object
+
+          myArray  = line.split(",");
+          key = myArray [0];
+          type = myArray [2];
+          time = myArray [1];
+          duration = myArray [3];
+
+          notes.push({key,  type,   time,   duration, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
+
+
+        });
+    };
+
+    reader.onerror = (event) => {
+        alert(event.target.error.name);
+    };
+
+    return notes;
+}
+
+
+function play2(song) {
+  show('game');
+  $('#overlay').hidden = true;
+  const url = URL.createObjectURL(song.blob), a = new Audio(url);
+  G = { song, a, url, phase: 'loading', notes: [], down: {}, flash: {}, score: 0, total: 0, dur: 0, t: 0, jt: '', jc: C.text, jn: 0 };
+  const me = G;
+  a.onloadedmetadata = () => {
+    if (!isFinite(a.duration) || a.duration <= 0) return fail("Couldn't work out how long this song is.");
+    me.dur = a.duration;
+
+    // this part generates the notes
+    // we do not want this.
+
+    me.notes = handleFiles(song);
+
+    /*
+    //          button hold  time  dur 
+    notes.push({ key,  hold,   t,   d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
+
+    So, must parse a file
+
+    */
+
+    me.total = me.notes.reduce((s, n) => s + nMax(n), 0);
+    a.play().then(() => me.phase = 'playing').catch(err => fail('Playback was blocked: ' + err.message));
+  };
+
+  a.onended = finish;
+  a.onerror = () => fail("Couldn't play this audio file.");
+  requestAnimationFrame(loop);
+
+}
+
+function isKnownSong(song){
+  if (song.title == "flaklypa") {
+    return true;
+
+  } else {
+    return false;
+
+  }
+}
+
 async function renderList() {
   const songs = (await store('readonly', s => s.getAll())).sort((a, b) => a.title.localeCompare(b.title));
   const ul = $('#list');
   ul.innerHTML = '';
   if (!songs.length) { ul.innerHTML = '<li class="empty">No songs yet. Press + to add one.</li>'; return; }
+  
   for (const s of songs) {
     const li = document.createElement('li');
     li.innerHTML = '<span></span><em></em>';
+
     li.firstChild.textContent = s.title;
     li.lastChild.textContent = s.bpm + ' BPM';
-    li.onclick = () => play(s);
-    li.oncontextmenu = async e => {
-      e.preventDefault();
-      const v = prompt(`New BPM for "${s.title}"\n(type DELETE to remove this song)`, s.bpm);
-      if (v === null) return;
-      if (v.trim().toUpperCase() === 'DELETE') await store('readwrite', st => st.delete(s.id));
-      else { const n = parseFloat(v); if (n >= 30 && n <= 300) { s.bpm = n; await store('readwrite', st => st.put(s)); } }
-      renderList();
-    };
+
+
+    li.onclick = () => playsplitter(s);
+
+ 
+    if (!isKnownSong){
+      li.oncontextmenu = async e => {
+        e.preventDefault();
+        const v = prompt(`New BPM for "${s.title}"\n(type DELETE to remove this song)`, s.bpm);
+        if (v === null) return;
+        if (v.trim().toUpperCase() === 'DELETE') await store('readwrite', st => st.delete(s.id));
+        else { const n = parseFloat(v); if (n >= 30 && n <= 300) { s.bpm = n; await store('readwrite', st => st.put(s)); } }
+        renderList();
+      };
+    }
+    
     ul.append(li);
   }
 }
@@ -91,9 +187,14 @@ function rng(seed) {
 
 // One note every 4th beat (BPM / 4 notes per minute); ~25% are 1-2 beat holds.
 function generate(song, dur) {
+
   const beat = 60 / song.bpm, iv = beat * 4;
+
   let h = 0; for (const ch of song.title) h = Math.imul(31, h) + ch.charCodeAt(0) | 0;
+
   const r = rng(h + Math.round(song.bpm * 100)), notes = [], recent = [];
+
+
   for (let k = 1; ; k++) {
     const t = k * iv;
     if (t < 2) continue;                      // room for the 2s yellow lead-in
@@ -102,7 +203,9 @@ function generate(song, dur) {
     if (hold && t + d + 1 > dur) { hold = false; d = 0; }
     let key; do { key = KEYS[Math.floor(r() * KEYS.length)]; } while (recent.includes(key));
     recent.push(key); if (recent.length > 3) recent.shift();
-    notes.push({ key, hold, t, d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
+
+    //          button hold  time  dur 
+    notes.push({ key,  hold,   t,   d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
   }
   return notes;
 }
@@ -120,10 +223,13 @@ function play(song) {
   a.onloadedmetadata = () => {
     if (!isFinite(a.duration) || a.duration <= 0) return fail("Couldn't work out how long this song is.");
     me.dur = a.duration;
+
     me.notes = generate(song, me.dur);
+
     me.total = me.notes.reduce((s, n) => s + nMax(n), 0);
     a.play().then(() => me.phase = 'playing').catch(err => fail('Playback was blocked: ' + err.message));
   };
+
   a.onended = finish;
   a.onerror = () => fail("Couldn't play this audio file.");
   requestAnimationFrame(loop);
