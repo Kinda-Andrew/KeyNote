@@ -3,6 +3,8 @@
 const C = { bg:'#0d1014', panel:'#151a21', edge:'#252d38', key:'#1b2129', keyEdge:'#2f3946', text:'#d9dee7', dim:'#6f7b8b',
             blue:'#4a90e2', green:'#4cc38a', orange:'#f0883e', yellow:'#f2d04a', red:'#d95c5c' };
 const SERIF = 'Georgia, "Palatino Linotype", "Times New Roman", serif';
+
+
 const ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'], OFFSETS = [0, .5, .75, 1.25];
 const KEYS = ROWS.join('').split('');
 
@@ -10,6 +12,9 @@ const KEYS = ROWS.join('').split('');
 const TAP_YELLOW = 100, TAP_GREEN = 300, HOLD_PTS = 250, WRONG = 50, HOLD_PEN = 100;
 const GREEN_HALF = .25, HOLD_GRACE = .25;   // seconds
 const LATENCY = 0;                           // raise if hits feel late
+
+// Notes are placed every BEATS_PER_NOTE beats (4 = BPM / 4 notes per minute). Try 2 for twice as many notes.
+const BEATS_PER_NOTE = 4;
 
 const $ = s => document.querySelector(s);
 const show = id => document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
@@ -40,121 +45,27 @@ function askBpm(name, initial = 120) {
   return null;
 }
 
-
-
-function playsplitter(song) {
-  if (song.title == "flaklypa") {
-    play2(song);
-  } else {
-    play(song);
-  }
-}
-
-
-function handleFiles(song) {
-    notes:[];
-    const file = song.title.target.files[0];
-    const reader = new FileReader();
-
-    reader.onload = (event) => {
-        const file = event.target.result;
-        const allLines = file.split(/\r\n|\n/);
-        // Reading line by line
-        allLines.forEach((line) => {
-          // this parses lie by line
-          // line == 1 line object
-
-          myArray  = line.split(",");
-          key = myArray [0];
-          type = myArray [2];
-          time = myArray [1];
-          duration = myArray [3];
-
-          notes.push({key,  type,   time,   duration, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
-
-
-        });
-    };
-
-    reader.onerror = (event) => {
-        alert(event.target.error.name);
-    };
-
-    return notes;
-}
-
-
-function play2(song) {
-  show('game');
-  $('#overlay').hidden = true;
-  const url = URL.createObjectURL(song.blob), a = new Audio(url);
-  G = { song, a, url, phase: 'loading', notes: [], down: {}, flash: {}, score: 0, total: 0, dur: 0, t: 0, jt: '', jc: C.text, jn: 0 };
-  const me = G;
-  a.onloadedmetadata = () => {
-    if (!isFinite(a.duration) || a.duration <= 0) return fail("Couldn't work out how long this song is.");
-    me.dur = a.duration;
-
-    // this part generates the notes
-    // we do not want this.
-
-    me.notes = handleFiles(song);
-
-    /*
-    //          button hold  time  dur 
-    notes.push({ key,  hold,   t,   d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
-
-    So, must parse a file
-
-    */
-
-    me.total = me.notes.reduce((s, n) => s + nMax(n), 0);
-    a.play().then(() => me.phase = 'playing').catch(err => fail('Playback was blocked: ' + err.message));
-  };
-
-  a.onended = finish;
-  a.onerror = () => fail("Couldn't play this audio file.");
-  requestAnimationFrame(loop);
-
-}
-
-function isKnownSong(song){
-  if (song.title == "flaklypa") {
-    return true;
-
-  } else {
-    return false;
-
-  }
-}
-
 async function renderList() {
   const songs = (await store('readonly', s => s.getAll())).sort((a, b) => a.title.localeCompare(b.title));
   const ul = $('#list');
   ul.innerHTML = '';
   if (!songs.length) { ul.innerHTML = '<li class="empty">No songs yet. Press + to add one.</li>'; return; }
-  
   for (const s of songs) {
     const li = document.createElement('li');
     li.innerHTML = '<span></span><em></em>';
-
     li.firstChild.textContent = s.title;
-    li.lastChild.textContent = s.bpm + ' BPM';
-
-
-    li.onclick = () => playsplitter(s);
-
- 
-    if (!isKnownSong){
-      li.oncontextmenu = async e => {
-        e.preventDefault();
-        const v = prompt(`New BPM for "${s.title}"\n(type DELETE to remove this song)`, s.bpm);
-        if (v === null) return;
-        if (v.trim().toUpperCase() === 'DELETE') await store('readwrite', st => st.delete(s.id));
-        else { const n = parseFloat(v); if (n >= 30 && n <= 300) { s.bpm = n; await store('readwrite', st => st.put(s)); } }
-        renderList();
-      };
-    }
-    
+    li.lastChild.textContent = s.bpm + ' BPM' + (s.map && s.map.src === 'osu' ? '  ·  .osu map' : '');
+    li.onclick = () => play(s);
+    li.oncontextmenu = async e => {
+      e.preventDefault();
+      const v = prompt(`New BPM for "${s.title}"\n(type REROLL for a fresh generated beatmap - replaces any .osu map - or DELETE to remove this song)`, s.bpm);
+      if (v === null) return;
+      const cmd = v.trim().toUpperCase();
+      if (cmd === 'DELETE') await store('readwrite', st => st.delete(s.id));
+      else if (cmd === 'REROLL') { s.seed = Math.floor(Math.random() * 1e9); s.map = null; await store('readwrite', st => st.put(s)); }
+      else { const n = parseFloat(v); if (n >= 30 && n <= 300) { s.bpm = n; if (!(s.map && s.map.src === 'osu')) s.map = null; await store('readwrite', st => st.put(s)); } }
+      renderList();
+    };
     ul.append(li);
   }
 }
@@ -187,14 +98,9 @@ function rng(seed) {
 
 // One note every 4th beat (BPM / 4 notes per minute); ~25% are 1-2 beat holds.
 function generate(song, dur) {
-
-  const beat = 60 / song.bpm, iv = beat * 4;
-
+  const beat = 60 / song.bpm, iv = beat * BEATS_PER_NOTE;
   let h = 0; for (const ch of song.title) h = Math.imul(31, h) + ch.charCodeAt(0) | 0;
-
-  const r = rng(h + Math.round(song.bpm * 100)), notes = [], recent = [];
-
-
+  const r = rng(h + Math.round(song.bpm * 100) + (song.seed || 0)), notes = [], recent = [];
   for (let k = 1; ; k++) {
     const t = k * iv;
     if (t < 2) continue;                      // room for the 2s yellow lead-in
@@ -203,12 +109,99 @@ function generate(song, dur) {
     if (hold && t + d + 1 > dur) { hold = false; d = 0; }
     let key; do { key = KEYS[Math.floor(r() * KEYS.length)]; } while (recent.includes(key));
     recent.push(key); if (recent.length > 3) recent.shift();
-
-    //          button hold  time  dur 
-    notes.push({ key,  hold,   t,   d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
+    notes.push({ key, hold, t, d, lead: hold ? 1 : 2, state: 'pending', pt: 0 });
   }
   return notes;
 }
+
+// Beatmaps are saved on the song record, so a song plays the same map every time.
+// A new one is made only if there's none yet, or the BPM / BEATS_PER_NOTE changed since it was saved.
+async function getMap(song, dur) {
+  const m = song.map;
+  if (m && (m.src === 'osu' || (m.div === BEATS_PER_NOTE && m.bpm === song.bpm)))   // saved map (imported maps ignore BPM)
+    return m.notes.map(n => ({ ...n, state: 'pending', pt: 0 })).filter(n => nWe(n) <= dur);
+  const notes = generate(song, dur);
+  song.map = { div: BEATS_PER_NOTE, bpm: song.bpm, notes: notes.map(({ state, pt, ...n }) => n) };
+  try { await store('readwrite', s => s.put(song)); } catch (e) { console.warn('Could not save beatmap', e); }
+  return notes;
+}
+
+// ====================== .osu import ======================
+// Only the hit times (and whether an object is a slider) are used from the file.
+const OSU_MIN_GAP = 0.6;     // seconds: osu maps are far denser than this game; closer objects are dropped
+const SLIDE_STEP = 0.18;     // seconds between the 4 keys of a slide
+const SLIDE_L = ['A', 'S', 'D', 'F'], SLIDE_R = ['L', 'K', 'J', 'H'];
+const TAP_POOL = KEYS.filter(k => !SLIDE_L.includes(k) && !SLIDE_R.includes(k));   // slide keys are reserved for slides
+const hashStr = s => { let h = 0; for (const ch of s) h = Math.imul(31, h) + ch.charCodeAt(0) | 0; return h; };
+
+function parseOsu(text) {
+  const objs = [];
+  let inObjects = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//')) continue;
+    if (line[0] === '[') { inObjects = line === '[HitObjects]'; continue; }
+    if (!inObjects) continue;
+    const p = line.split(',');                       // x, y, time(ms), type, ...
+    const x = +p[0], t = +p[2] / 1000, type = +p[3];
+    if (p.length < 4 || !isFinite(x) || !isFinite(t) || (type & 8)) continue;   // skip spinners
+    objs.push({ x, t, slider: !!(type & 2) });
+  }
+  return objs.sort((a, b) => a.t - b.t);
+}
+
+// Circle -> one tap on a seeded-random letter. Slider -> 4 taps in order across A S D F (left half of the
+// osu playfield) or L K J H (right half). Same file always gives the same letters.
+function buildOsuMap(objs, seed) {
+  const r = rng(hashStr(seed)), notes = [];
+  const clash = (k, t) => notes.some(n => n.key === k && Math.abs(n.t - t) < 3);   // never light a key twice at once
+  let free = 0;
+  for (const o of objs) {
+    if (o.t < .5 || o.t < free) continue;
+    if (o.slider) {
+      const seq = (o.x < 256 ? [SLIDE_L, SLIDE_R] : [SLIDE_R, SLIDE_L]).find(s => !s.some((k, i) => clash(k, o.t + i * SLIDE_STEP)));
+      if (seq) {
+        seq.forEach((key, i) => notes.push({ key, hold: false, slide: true, step: i + 1, t: o.t + i * SLIDE_STEP, d: 0, lead: 1 }));
+        free = o.t + 3 * SLIDE_STEP + OSU_MIN_GAP;
+        continue;
+      }
+    }
+    const options = TAP_POOL.filter(k => !clash(k, o.t));
+    if (!options.length) continue;
+    notes.push({ key: options[Math.floor(r() * options.length)], hold: false, t: o.t, d: 0, lead: 2 });
+    free = o.t + OSU_MIN_GAP;
+  }
+  return notes;
+}
+
+$('#osu').onclick = () => $('#osufile').click();
+$('#osufile').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const notes = buildOsuMap(parseOsu(await f.text()), f.name);
+  if (!notes.length) return alert("Couldn't find any usable hit objects in that .osu file.");
+  const songs = (await store('readonly', s => s.getAll())).sort((a, b) => a.title.localeCompare(b.title));
+  if (!songs.length) return alert('Add a song first, then import a beatmap for it.');
+  $('#pname').textContent = `${f.name} (${notes.length} notes)`;
+  const ul = $('#plist');
+  ul.innerHTML = '';
+  for (const s of songs) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span></span><em></em>';
+    li.firstChild.textContent = s.title;
+    li.lastChild.textContent = s.map && s.map.src === 'osu' ? 'replaces current .osu map' : '';
+    li.onclick = async () => {
+      s.map = { src: 'osu', name: f.name, notes };
+      await store('readwrite', st => st.put(s));
+      $('#picker').hidden = true;
+      renderList();
+    };
+    ul.append(li);
+  }
+  $('#picker').hidden = false;
+};
+$('#pcancel').onclick = () => $('#picker').hidden = true;
 
 // ====================== game ======================
 const cv = $('#cv'), g = cv.getContext('2d');
@@ -220,16 +213,14 @@ function play(song) {
   const url = URL.createObjectURL(song.blob), a = new Audio(url);
   G = { song, a, url, phase: 'loading', notes: [], down: {}, flash: {}, score: 0, total: 0, dur: 0, t: 0, jt: '', jc: C.text, jn: 0 };
   const me = G;
-  a.onloadedmetadata = () => {
+  a.onloadedmetadata = async () => {
     if (!isFinite(a.duration) || a.duration <= 0) return fail("Couldn't work out how long this song is.");
     me.dur = a.duration;
-
-    me.notes = generate(song, me.dur);
-
+    me.notes = await getMap(song, me.dur);
+    if (G !== me) return;                      // left the screen while loading
     me.total = me.notes.reduce((s, n) => s + nMax(n), 0);
     a.play().then(() => me.phase = 'playing').catch(err => fail('Playback was blocked: ' + err.message));
   };
-
   a.onended = finish;
   a.onerror = () => fail("Couldn't play this audio file.");
   requestAnimationFrame(loop);
@@ -279,7 +270,7 @@ function press(key, t) {
     n.state = 'done';
     if (green) { addScore(TAP_GREEN, 'Perfect', C.green); flash(key, C.green); }
     else { addScore(TAP_YELLOW, 'Good', C.yellow); flash(key, C.yellow); }
-  } else { n.state = 'held'; n.pt = t; judge('Hold...', C.yellow); }
+  } else { n.state = 'held'; n.pt = t; judge('Hold...', C.orange); }
 }
 
 function release(key, t) {
@@ -348,7 +339,10 @@ function text(s, x, y, font, color, align = 'left', base = 'top') {
 function legend(x, y, color, label) {
   g.fillStyle = color; rr(x, y - 7, 14, 14, 4); g.fill();
   text(label, x + 22, y, `italic 15px ${SERIF}`, C.dim, 'left', 'middle');
+  return x + 22 + g.measureText(label).width + 30;   // x for the next item
 }
+
+const tint = n => n.hold ? C.orange : n.slide ? C.blue : C.yellow;
 
 function draw() {
   const dpr = devicePixelRatio || 1, w = innerWidth, h = innerHeight;
@@ -386,12 +380,12 @@ function draw() {
     const x = x0 + (OFFSETS[r] + c) * unit, y = y0 + r * unit, z = zones[ch] || 0, n = lit[ch];
     let fill = C.key, edge = C.keyEdge, tc = C.dim;
     if (z === 2) fill = edge = C.green, tc = C.bg;
-    else if (z === 1) fill = edge = C.yellow, tc = C.bg;
+    else if (z === 1) fill = edge = tint(n), tc = C.bg;
     else if (ch in G.down) fill = C.keyEdge, tc = C.text;
 
     if (z === 1 && n && t < n.t) {                    // approach ring closes in during the yellow lead-in
       const ap = Math.max(0, Math.min(1, (n.t - t) / n.lead)), e = ap * ks * .45;
-      g.globalAlpha = .35 + .5 * (1 - ap); g.strokeStyle = C.yellow; g.lineWidth = 2;
+      g.globalAlpha = .35 + .5 * (1 - ap); g.strokeStyle = tint(n); g.lineWidth = 2;
       rr(x - e, y - e, ks + 2 * e, ks + 2 * e, 12 + e); g.stroke(); g.globalAlpha = 1;
     }
     g.fillStyle = fill; rr(x, y, ks, ks, 12); g.fill();
@@ -401,17 +395,22 @@ function draw() {
       if (a > 0) { g.globalAlpha = a * .85; g.fillStyle = f.color; rr(x, y, ks, ks, 12); g.fill(); g.globalAlpha = 1; }
     }
     g.strokeStyle = edge; g.lineWidth = 1.5; rr(x, y, ks, ks, 12); g.stroke();
-    if (z === 2 && n && n.hold) {                     // remaining hold time
-      g.fillStyle = C.bg; rr(x + 8, y + ks - 12, (ks - 16) * Math.max(0, Math.min(1, (n.t + n.d - t) / n.d)), 4, 4); g.fill();
+    if (z && n.hold) {                                // HOLD tag + bar: shown from the first orange, drains only during the green
+      const frac = t < n.t ? 1 : Math.max(0, Math.min(1, (n.t + n.d - t) / n.d));
+      g.fillStyle = 'rgba(13,16,20,.3)'; rr(x + 8, y + ks - 14, ks - 16, 6, 3); g.fill();
+      g.fillStyle = C.bg; rr(x + 8, y + ks - 14, (ks - 16) * frac, 6, 3); g.fill();
+      text('HOLD', x + ks / 2, y + 7, `bold ${ks * .17}px ${SERIF}`, tc, 'center');
     }
-    text(ch, x + ks / 2, y + ks / 2 - 1, `bold ${ks * .42}px ${SERIF}`, tc, 'center', 'middle');
+    if (z && n.slide) text('SLIDE ' + n.step, x + ks / 2, y + 7, `bold ${ks * .17}px ${SERIF}`, tc, 'center');
+    text(ch, x + ks / 2, y + ks / 2 - 1, `bold ${ks * .42}px 'Roboto Mono', "Courier New", Courier, monospace`, tc, 'center', 'middle');
   }));
 
   // legend + hint
   const ly = y0 + kbH + 58;
-  legend(w / 2 - 230, ly, C.yellow, 'get ready (100)');
-  legend(w / 2 - 50, ly, C.green, 'hit now (300)');
-  legend(w / 2 + 120, ly, C.red, 'wrong key / off time');
+  const items = [[C.yellow, 'get ready (100)'], [C.orange, 'hold (250)'], [C.blue, 'slide in order'], [C.green, 'hit now (300)'], [C.red, 'wrong / off time']];
+  g.font = `italic 15px ${SERIF}`;
+  let lx = (w - items.reduce((sum, [, l]) => sum + 22 + g.measureText(l).width + 30, -30)) / 2;
+  for (const [c, l] of items) lx = legend(lx, ly, c, l);
   text('Esc to quit', 40, h - 24, `italic 14px ${SERIF}`, C.dim, 'left', 'bottom');
   if (G.phase === 'loading') text('Loading...', w / 2, 150, `italic 24px ${SERIF}`, C.dim, 'center', 'middle');
 }
@@ -423,4 +422,10 @@ function loop() {
 }
 
 // ====================== start ======================
-setTimeout(() => { show('select'); renderList(); }, 5000);
+const TITLE_MS = 2000;   // total time on the title screen
+const FADE_MS = 400;     // length of the fade-out
+
+setTimeout(() => {
+  $('#title').classList.add('fade-out');
+  setTimeout(() => { show('select'); renderList(); }, FADE_MS);
+}, TITLE_MS - FADE_MS);

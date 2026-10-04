@@ -4,26 +4,47 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Keynote</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap" rel="stylesheet">
+  <link href="https://googleapis.com" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="favicon.png" type="image/x-icon">
+  
+
 </head>
 <body>
   <!-- Title screen (auto-advances after 5s). Swap .knob for <img src="logo.png"> when your logo is ready. -->
   <section id="title" class="screen active">
-    <div class="knob"><i></i></div>
-    <h1>Key<span>note</span></h1>
-    <p>a game of keys and rhythm</p>
-    <div class="dots"><b></b><b></b><b></b></div>
+    <br>
+
+    <h1 style="font-family: 'Courier New', Courier, monospace;">Key<span>Note</span></h1>
+    <p>TYPE TYPE REVOLUTION</p>
+    <img src="favicon.png" alt="Logo" style="width: 10%;">
+    
   </section>
 
   <!-- Song select -->
   <section id="select" class="screen">
     <header>
       <div><h2>Select a Song</h2><p>choose a track to play</p></div>
-      <button id="add" title="Add a song">+</button>
+      <div class="actions">
+        <button id="osu" title="Use a .osu file as a song's beatmap">Import .osu</button>
+        <button id="add" title="Add a song">+</button>
+      </div>
     </header>
     <ul id="list"></ul>
     <footer>Songs are saved in this browser. Right-click a song to edit its BPM or remove it.</footer>
     <input id="file" type="file" accept="audio/*" multiple hidden>
+    <input id="osufile" type="file" accept=".osu" hidden>
+
+    <!-- Pick which song gets the imported .osu beatmap -->
+    <div id="picker" hidden>
+      <div class="card">
+        <h3>Use this beatmap for which song?</h3>
+        <p id="pname"></p>
+        <ul id="plist"></ul>
+        <button id="pcancel">Cancel</button>
+      </div>
+    </div>
   </section>
 
   <!-- Game -->
