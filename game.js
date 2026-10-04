@@ -46,7 +46,10 @@ function askBpm(name, initial = 120) {
 }
 
 async function renderList() {
-  const songs = (await store('readonly', s => s.getAll())).sort((a, b) => a.title.localeCompare(b.title));
+  const mine = (await store('readonly', s => s.getAll())).sort((a, b) => a.title.localeCompare(b.title));
+  const songs = [...BUILTIN_SONGS.map(s => ({ ...s, builtin: true })), ...mine];
+
+
   const ul = $('#list');
   ul.innerHTML = '';
   if (!songs.length) { ul.innerHTML = '<li class="empty">No songs yet. Press + to add one.</li>'; return; }
@@ -58,6 +61,7 @@ async function renderList() {
     li.onclick = () => play(s);
     li.oncontextmenu = async e => {
       e.preventDefault();
+      if (s.builtin) return;
       const v = prompt(`New BPM for "${s.title}"\n(type REROLL for a fresh generated beatmap - replaces any .osu map - or DELETE to remove this song)`, s.bpm);
       if (v === null) return;
       const cmd = v.trim().toUpperCase();
@@ -122,7 +126,7 @@ async function getMap(song, dur) {
     return m.notes.map(n => ({ ...n, state: 'pending', pt: 0 })).filter(n => nWe(n) <= dur);
   const notes = generate(song, dur);
   song.map = { div: BEATS_PER_NOTE, bpm: song.bpm, notes: notes.map(({ state, pt, ...n }) => n) };
-  try { await store('readwrite', s => s.put(song)); } catch (e) { console.warn('Could not save beatmap', e); }
+  if (!song.builtin) try { await store('readwrite', s => s.put(song)); } catch (e) { console.warn('Could not save beatmap', e); }   // <-- changed
   return notes;
 }
 
@@ -210,7 +214,7 @@ let G = null;
 function play(song) {
   show('game');
   $('#overlay').hidden = true;
-  const url = URL.createObjectURL(song.blob), a = new Audio(url);
+  const url = song.blob ? URL.createObjectURL(song.blob) : song.src, a = new Audio(url);
   G = { song, a, url, phase: 'loading', notes: [], down: {}, flash: {}, score: 0, total: 0, dur: 0, t: 0, jt: '', jc: C.text, jn: 0 };
   const me = G;
   a.onloadedmetadata = async () => {
@@ -251,8 +255,10 @@ function fail(msg) {
   $('#overlay').hidden = false;
 }
 function exit() {
-  if (!G) return;
-  G.a.pause(); URL.revokeObjectURL(G.url); G = null;
+   if (!G) return;
+  G.a.pause();
+  if (G.song.blob) URL.revokeObjectURL(G.url);
+  G = null;
   show('select'); renderList();
 }
 $('#back').onclick = exit;
